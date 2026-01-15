@@ -30,7 +30,7 @@ show_banner() {
     echo "                  __/ |                    "
     echo "                 |___/                     "
     echo -e "${CYAN} ==========================================================${NC}"
-    echo -e "${WHITE}      Sing-box Pure AnyTLS (No-Reality) Setup v2.2${NC}"
+    echo -e "${WHITE}      Sing-box Pure AnyTLS (No-Reality) Setup v2.3${NC}"
     echo -e "${CYAN} ==========================================================${NC}"
     echo ""
 }
@@ -85,26 +85,9 @@ install_dependencies() {
         fi
     fi
 
-    mkdir -p /etc/sing-box
+    # 创建证书目录
     mkdir -p $SB_CERT_DIR
-    
-    # 清理默认配置
-    if [ -f "$SB_CONFIG" ]; then
-        # 检查是否是默认配置（包含dns或默认8080端口）
-        if jq -e '.dns or (.inbounds[]? | select(.listen_port == 8080))' "$SB_CONFIG" >/dev/null 2>&1; then
-            print_info "检测到默认配置，正在清理..."
-            cp "$SB_CONFIG" "${SB_CONFIG}.original.bak" 2>/dev/null
-            
-            # 删除 dns 和默认 inbound，保留基础结构
-            tmp=$(mktemp)
-            jq 'del(.dns) | .inbounds = [] | .outbounds = [{"type":"direct","tag":"direct"}] | .route = {"rules":[]}' "$SB_CONFIG" > "$tmp" 2>/dev/null && mv "$tmp" "$SB_CONFIG"
-            
-            print_success "已清理默认模板"
-        fi
-    else
-        # 创建空白配置
-        echo '{"log":{"level":"warn"},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"rules":[]}}' > "$SB_CONFIG"
-    fi
+    echo '{"log":{"level":"warn"},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"rules":[]}}' > "$SB_CONFIG"
 }
 
 gen_ss2022_key() { openssl rand -base64 16; }
@@ -162,11 +145,54 @@ check_tag_exists() {
 logic_C() {
     echo -e "${WHITE}>>> Mode: ${CYAN}C. 出口机器 (Exit / Server C)${NC}"
     echo -e "${WHITE}    Role: Inbound (Pure AnyTLS + Self-Signed Cert)${NC}"
+    echo -e "${YELLOW}    [Feature] Supports adding MULTIPLE inbounds.${NC}"
     
     install_dependencies
 
+    # 初始化配置（如果不存在）
+    if [ ! -f "$SB_CONFIG" ] || [ ! -s "$SB_CONFIG" ]; then
+        echo '{"log":{"level":"info","timestamp":true},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}]}' > $SB_CONFIG
+    else
+        print_info "Config exists. Appending new inbound..."
+        cp $SB_CONFIG "${SB_CONFIG}.bak"
+    fi
+
+    # 端口和Tag设置
     read -p "   Set Listen Port [Default 8443]: " listen_port
     listen_port=${listen_port:-8443}
+    
+    # 检查端口冲突
+    if jq -e ".inbounds[]? | select(.listen_port == $listen_port)" "$SB_CONFIG" >/dev/null 2>&1; then
+        print_error "端口 $listen_port 已被占用！"
+        jq -r '.inbounds[] | "  Port: \(.listen_port) - Tag: \(.tag)"' "$SB_CONFIG"
+        exit 1
+    fi
+    
+    # 让用户输入 tag 名称
+    while true; do
+        read -p "   Tag Name (英文/数字/短横线) [anytls-in]: " user_tag
+        user_tag=${user_tag:-"anytls-in"}
+        # 清理 tag，只保留字母数字和短横线
+        user_tag=$(echo "$user_tag" | sed 's/[^a-zA-Z0-9-]//g')
+        
+        # 检查 tag 是否已存在
+        if check_tag_exists "$user_tag"; then
+            print_warn "Tag '$user_tag' 已存在！"
+            read -p "   是否覆盖现有配置? [y/N]: " overwrite
+            if [[ "$overwrite" =~ ^[Yy]$ ]]; then
+                # 删除旧的 inbound
+                tmp=$(mktemp)
+                jq "del(.inbounds[] | select(.tag == \"$user_tag\"))" "$SB_CONFIG" > "$tmp" && mv "$tmp" "$SB_CONFIG"
+                print_success "已删除旧配置"
+                break
+            else
+                print_info "请重新输入不同的 Tag 名称"
+                continue
+            fi
+        else
+            break
+        fi
+    done
 
     # 1. 生成证书
     cert_paths=$(gen_self_signed_cert)
@@ -176,57 +202,68 @@ logic_C() {
     # 2. 生成密码
     anytls_password=$(gen_anytls_pass)
 
-    print_info "Writing Config..."
+    print_info "Appending AnyTLS Inbound via jq..."
 
-    # C端配置：Inbound 使用 anytls 类型，开启 TLS 并指向本地证书
-    cat > $SB_CONFIG <<EOF
-{
-  "log": { "level": "warn"},
-  "inbounds": [
-    {
-      "type": "anytls",
-      "tag": "anytls-in",
-      "listen": "::",
-      "listen_port": $listen_port,
-      "users": [ { "name": "user1", "password": "$anytls_password" } ],
-      "tls": {
-        "enabled": true,
-        "certificate_path": "$crt_path",
-        "key_path": "$key_path"
-      }
-    }
-  ],
-  "outbounds": [ { "type": "direct", "tag": "direct" } ]
-}
-EOF
+    # 构造 Inbound (AnyTLS)
+    json_ib=$(jq -n \
+        --arg tag "$user_tag" \
+        --arg port "$listen_port" \
+        --arg pass "$anytls_password" \
+        --arg crt "$crt_path" \
+        --arg key "$key_path" \
+        '{
+            type: "anytls",
+            tag: $tag,
+            listen: "::",
+            listen_port: ($port|tonumber),
+            users: [ { name: "user1", password: $pass } ],
+            tls: {
+                enabled: true,
+                certificate_path: $crt,
+                key_path: $key
+            }
+        }')
+
+    # 写入配置
+    tmp=$(mktemp)
+    jq ".inbounds += [$json_ib]" $SB_CONFIG > "$tmp" && mv "$tmp" $SB_CONFIG
+    
+    # 确保有 direct outbound
+    if ! jq -e '.outbounds[]? | select(.tag == "direct")' "$SB_CONFIG" >/dev/null 2>&1; then
+        jq '.outbounds += [{"type":"direct","tag":"direct"}]' "$SB_CONFIG" > "$tmp" && mv "$tmp" "$SB_CONFIG"
+    fi
 
     # 启用并重启服务
     systemctl enable sing-box.service >/dev/null 2>&1
-    systemctl restart sing-box.service
     
-    if ! systemctl is-active --quiet sing-box.service; then
-        print_error "服务启动失败！"
-        journalctl -u sing-box.service -n 20 --no-pager
-        exit 1
-    fi
-    
-    public_ip=$(curl -4 -s --max-time 3 ifconfig.me)
+    if systemctl restart sing-box.service; then
+        public_ip=$(curl -4 -s --max-time 3 ifconfig.me)
 
-    print_success "Server C Deployed!"
-    print_card "Copy to Server B" \
-        "IP       : $public_ip" \
-        "Port     : $listen_port" \
-        "Password : $anytls_password"
-    
-    # 引导步骤
-    echo -e "${YELLOW}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║${WHITE}  下一步操作指引 (Next Steps)${YELLOW}              ║${NC}"
-    echo -e "${YELLOW}╠══════════════════════════════════════════════╣${NC}"
-    echo -e "${YELLOW}║${NC}  1. 复制上方的 IP、Port、Password           ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}  2. 登录到服务器 B (中转服务器)             ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}  3. 运行本脚本并选择 [1] B (Relay)          ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}  4. 粘贴上方信息以建立 B → C 隧道           ${YELLOW}║${NC}"
-    echo -e "${YELLOW}╚══════════════════════════════════════════════╝${NC}\n"
+        print_success "Server C Inbound Added!"
+        print_card "Copy to Server B" \
+            "IP       : $public_ip" \
+            "Port     : $listen_port" \
+            "Password : $anytls_password" \
+            "Tag      : $user_tag"
+        
+        # 引导步骤
+        echo -e "${YELLOW}╔══════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║${WHITE}  下一步操作指引 (Next Steps)${YELLOW}              ║${NC}"
+        echo -e "${YELLOW}╠══════════════════════════════════════════════╣${NC}"
+        echo -e "${YELLOW}║${NC}  1. 复制上方的 IP、Port、Password           ${YELLOW}║${NC}"
+        echo -e "${YELLOW}║${NC}  2. 登录到服务器 B (中转服务器)             ${YELLOW}║${NC}"
+        echo -e "${YELLOW}║${NC}  3. 运行本脚本并选择 [1] B (Relay)          ${YELLOW}║${NC}"
+        echo -e "${YELLOW}║${NC}  4. 粘贴上方信息以建立 B → C 隧道           ${YELLOW}║${NC}"
+        echo -e "${YELLOW}║${NC}  5. 可再次运行本脚本添加更多 C 端口         ${YELLOW}║${NC}"
+        echo -e "${YELLOW}╚══════════════════════════════════════════════╝${NC}\n"
+
+        print_warn "若配置无法使用，可访问 /etc/sing-box/config.json.original.bak 退回之前配置"
+    else
+        print_error "服务启动失败！Restoring backup..."
+        cp "${SB_CONFIG}.bak" $SB_CONFIG 2>/dev/null
+        systemctl restart sing-box.service
+        journalctl -u sing-box.service -n 20 --no-pager
+    fi
 }
 
 # --- 逻辑 B: 中转端 (Incremental Relay) ---
@@ -363,6 +400,8 @@ logic_B() {
         echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}\n"
         
         print_warn "复制上方 URI 链接，在客户端使用一键导入功能即可使用"
+        print_warn "若配置无法使用，可访问 /etc/sing-box/config.json.original.bak 退回之前配置"
+
         
     else
         print_error "Failed. Restoring backup..."
