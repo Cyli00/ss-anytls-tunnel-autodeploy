@@ -3,6 +3,12 @@ autodeploy ss-anytls tunnel between server B &amp; C with sing-box core.
 
 ## 🎯 工作流程
 
+```
+curl -O https://raw.githubusercontent.com/Cyli00/ss-anytls-tunnel-autodeploy/refs/heads/main/autodeploy.sh
+chmod +x autodeploy.sh
+bash autodeploy.sh
+```
+
 1. **在服务器 C** 运行脚本 → 选择 `[2] C (Exit)`
 2. 复制显示的 IP、Port、Password
 3. **在服务器 B** 运行脚本 → 选择 `[1] B (Relay)`
