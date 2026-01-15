@@ -87,7 +87,6 @@ install_dependencies() {
 
     # 创建证书目录
     mkdir -p $SB_CERT_DIR
-    echo '{"log":{"level":"warn"},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"rules":[]}}' > "$SB_CONFIG"
 }
 
 gen_ss2022_key() { openssl rand -base64 16; }
@@ -151,7 +150,7 @@ logic_C() {
 
     # 初始化配置（如果不存在）
     if [ ! -f "$SB_CONFIG" ] || [ ! -s "$SB_CONFIG" ]; then
-        echo '{"log":{"level":"info","timestamp":true},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}]}' > $SB_CONFIG
+        echo '{"log":{"level":"warn"},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}],"route":{"rules":[]}}' > "$SB_CONFIG"
     fi
     
     # 备份现有配置
@@ -260,7 +259,7 @@ logic_C() {
         echo -e "${YELLOW}║${NC}  5. 可再次运行本脚本添加更多 C 端口         ${YELLOW}║${NC}"
         echo -e "${YELLOW}╚══════════════════════════════════════════════╝${NC}\n"
 
-        print_warn "若配置无法使用，可访问 /etc/sing-box/config.json.original.bak 退回之前配置"
+        print_warn "若配置无法使用，可访问 /etc/sing-box/config.json.bak 退回之前配置"
     else
         print_error "服务启动失败！Restoring backup..."
         cp "${SB_CONFIG}.bak" $SB_CONFIG 2>/dev/null
@@ -280,13 +279,13 @@ logic_B() {
 
     # 初始化配置
     if [ ! -f "$SB_CONFIG" ] || [ ! -s "$SB_CONFIG" ]; then
-        echo '{ "log": {"level":"warn"}, "inbounds":[], "outbounds":[{"type":"direct","tag":"direct"}], "route":{"rules":[]} }' > $SB_CONFIG
+        echo '{ "log": {"level":"warn"}, "inbounds":[], "outbounds":[{"type":"direct","tag":"direct"}], "route":{"rules":[]} }' > "$SB_CONFIG"
     fi
     
     # 备份现有配置
     if [ -f "$SB_CONFIG" ]; then
         print_info "Config exists. Appending new route..."
-        cp $SB_CONFIG "${SB_CONFIG}.bak"
+        cp "$SB_CONFIG" "${SB_CONFIG}.bak"
     fi
 
     # 1. 输入 C 端信息
@@ -406,7 +405,7 @@ logic_B() {
         echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}\n"
         
         print_warn "复制上方 URI 链接，在客户端使用一键导入功能即可使用"
-        print_warn "若配置无法使用，可访问 /etc/sing-box/config.json.original.bak 退回之前配置"
+        print_warn "若配置无法使用，可访问 /etc/sing-box/config.json.bak 退回之前配置"
 
         
     else
