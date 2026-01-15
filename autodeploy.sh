@@ -152,7 +152,10 @@ logic_C() {
     # 初始化配置（如果不存在）
     if [ ! -f "$SB_CONFIG" ] || [ ! -s "$SB_CONFIG" ]; then
         echo '{"log":{"level":"info","timestamp":true},"inbounds":[],"outbounds":[{"type":"direct","tag":"direct"}]}' > $SB_CONFIG
-    else
+    fi
+    
+    # 备份现有配置
+    if [ -f "$SB_CONFIG" ]; then
         print_info "Config exists. Appending new inbound..."
         cp $SB_CONFIG "${SB_CONFIG}.bak"
     fi
@@ -278,7 +281,10 @@ logic_B() {
     # 初始化配置
     if [ ! -f "$SB_CONFIG" ] || [ ! -s "$SB_CONFIG" ]; then
         echo '{ "log": {"level":"warn"}, "inbounds":[], "outbounds":[{"type":"direct","tag":"direct"}], "route":{"rules":[]} }' > $SB_CONFIG
-    else
+    fi
+    
+    # 备份现有配置
+    if [ -f "$SB_CONFIG" ]; then
         print_info "Config exists. Appending new route..."
         cp $SB_CONFIG "${SB_CONFIG}.bak"
     fi
