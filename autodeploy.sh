@@ -375,6 +375,6 @@ logic_B() {
 
 check_root
 show_banner
-echo -e "Select Mode:\n 1. B (Relay) - Add Route\n 2. C (Exit) - Setup AnyTLS"
+echo -e "Select Mode:\n 1. (Relay) - Add Route\n 2. (Exit) - Setup AnyTLS"
 read -p "Choice [1/2]: " choice
 case "$choice" in 1) logic_B ;; 2) logic_C ;; *) exit 1 ;; esac
