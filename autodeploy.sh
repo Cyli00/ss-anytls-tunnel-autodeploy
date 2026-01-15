@@ -29,7 +29,6 @@ show_banner() {
     echo " |_____/|_|_| |_|\__, |   |____/ \___/_/\_\\"
     echo "                  __/ |                    "
     echo "                 |___/                     "
-    echo -e "${WHITE}           利 群 主 機  -  L e i K w a n   H o s t${NC}"
     echo -e "${CYAN} ==========================================================${NC}"
     echo -e "${WHITE}      Sing-box Pure AnyTLS (No-Reality) Setup v2.2${NC}"
     echo -e "${CYAN} ==========================================================${NC}"
